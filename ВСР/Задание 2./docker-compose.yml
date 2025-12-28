@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # 📌 Reverse Proxy + автоконфигурация виртуальных хостов
+  nginx-proxy:
+    image: jwilder/nginx-proxy:alpine
+    container_name: nginx-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DEFAULT_HOST=apps.pr-cbs.ru
+      - TRUST_DOWNSTREAM_PROXY=false
+    volumes:
+      - vhostd:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:rw
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+
+  # 📌 Авто-выдача SSL Let’s Encrypt
+  letsencrypt:
+    image: jrcs/letsencrypt-nginx-proxy-companion
+    container_name: nginx-proxy-letsencrypt
+    restart: always
+    depends_on:
+      - nginx-proxy
+    environment:
+      - NGINX_PROXY_CONTAINER=nginx-proxy
+    volumes:
+      - vhostd:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # 📌 Твой сайт / веб-приложение
+  web:
+    build:
+      context: .
+      dockerfile: nginx.Dockerfile
+    image: nginx-psmap
+    container_name: nginx-psmap-container
+    restart: always
+    environment:
+      - VIRTUAL_HOST=apps.pr-cbs.ru,map.pr-cbs.ru
+      - LETSENCRYPT_HOST=apps.pr-cbs.ru,map.pr-cbs.ru
+      - LETSENCRYPT_EMAIL=newprcbs@gmail.com
+    volumes:
+      - /home/user/apps/ps-map-original/dist:/usr/share/nginx/html:ro
+    expose:
+      - "80"  # важно! экспорт порта внутрь сети docker
+
+  # 📌 Сервис, который генерирует dist (cron-сборка)
+  builder:
+    build:
+      context: .
+      dockerfile: builder.Dockerfile
+    container_name: psmap-builder
+    restart: always
+    working_dir: /app
+    volumes:
+      - .:/app
+      - dist:/app/dist
+      - ./logs:/var/log/cron
+      - ./crontab.txt:/app/crontab.txt
+      - ./rebuild-ps-map.sh:/app/rebuild-ps-map.sh
+    command: sh -c "crond -f -L /var/log/cron/cron.log"
+
+volumes:
+  certs:
+  vhostd:
+  html:
+  dist:

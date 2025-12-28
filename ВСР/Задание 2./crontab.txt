@@ -1,0 +1,2 @@
+# Пересобирать каждый день в 03:00
+0 3 * * * /app/rebuild-ps-map.sh >> /var/log/cron/psmap.log 2>&1
